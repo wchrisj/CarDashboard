@@ -8,10 +8,13 @@ entity PS2 is
 		reset			:	IN STD_LOGIC;
 		start			: 	IN STD_LOGIC;
 		data			: 	IN STD_LOGIC_VECTOR(7 downto 0);
-		clkOut 		:	OUT STD_LOGIC;
-		ready			:	OUT STD_LOGIC;
+		wrte			: 	IN STD_LOGIC;
+		clkOut 		:	INOUT STD_LOGIC;
+		dataOut		:	INOUT STD_LOGIC;
+		sendReady	:	OUT STD_LOGIC;
 		test			:	OUT STD_LOGIC;
-		dataOut		:	OUT STD_LOGIC
+		InterruptReceived : OUT STD_LOGIC;
+		receivedData : OUT STD_LOGIC_VECTOR(7 downto 0)
 	);
 end entity;
 
@@ -22,78 +25,102 @@ architecture default of PS2 is
 				clkout : OUT STD_LOGIC);
 	end component Prescaler;
 	
-	component oddParity is
+	component PS2_clockdivider is
 		port(
-			data : IN STD_LOGIC_VECTOR(7 downto 0);
-			output : OUT STD_LOGIC
+			clkIn : IN STD_LOGIC;
+			reset : IN STD_LOGIC;
+			clk1	: OUT STD_LOGIC;
+			clk2	: OUT STD_LOGIC
 		);
 	end component;
 	
+	component PS2_send is
+		port(
+			clk 			: 	IN STD_LOGIC;
+			reset			:	IN STD_LOGIC;
+			start			: 	IN STD_LOGIC;
+			enable		:	IN STD_LOGIC;
+			data			: 	IN STD_LOGIC_VECTOR(7 downto 0);
+			ready			:	OUT STD_LOGIC;
+			dataOut		:	OUT STD_LOGIC
+		);
+	end component;
+	
+	component PS2_receive is
+	port(
+		data				: IN STD_LOGIC;
+		enable			: IN STD_LOGIC;
+		reset				: IN STD_LOGIC;
+		clk				: IN STD_LOGIC;
+		output			: OUT STD_LOGIC_VECTOR(7 downto 0);
+		ready 			: OUT STD_LOGIC
+	);
+end component;
+	
 	signal clkData : STD_LOGIC;
-	signal parity : STD_LOGIC;
+	signal clkIn : STD_LOGIC;
+	signal SENDER_enabled : STD_LOGIC;
+	signal sendReady2 : STD_LOGIC;
+	signal receivedInterrupt : STD_LOGIC;
+	signal SENDER_data : STD_LOGIC;
+	signal SENDER_clock : STD_LOGIC;
+	signal RECEIVER_data : STD_LOGIC;
+	signal RECEIVER_clock : STD_LOGIC;
+	signal RECEIVER_enabled : STD_LOGIC;
+	
+	
+	-- Build an enumerated type for the state machine
+	type state_type is (sending, receiving, rust);
+
+	-- Register to hold the current state
+	signal state   : state_type;
 	
 	begin	
 		portmapPrescaler : Prescaler port map ('1', clk, reset, "010", clkData);
-		portmapParity : oddParity port map (data, parity);
+		clockdivider : PS2_clockdivider port map (clkData, reset, SENDER_clock, clkIn);
+		sender : PS2_send port map (clkIn, reset, start, SENDER_enabled, data, sendReady2, SENDER_data);
+		receiver : PS2_receive port map (RECEIVER_data, RECEIVER_enabled, reset, clkIn, receivedData, receivedInterrupt);
 		
-		process(clkData, reset, start)
-			variable changeClock : INTEGER RANGE 0 TO 1;
-			variable countBit		: INTEGER RANGE 0 TO 11;
-			variable clkOutSignal : INTEGER RANGE 0 TO 1;
-			variable sending : INTEGER RANGE 0 TO 1;
-			
+		sendReady <= sendReady2;
+		InterruptReceived <= receivedInterrupt;
+		
+		process(receivedInterrupt, sendReady2, reset, start)			
 			begin
 				if reset = '1' then
-					countBit := 0;
-					clkOutSignal := 0;
-					changeClock := 0;
-					ready <= '1';
-					sending := 0;
+					state <= rust;
 				elsif start = '1' then
-					countBit := 0;
-					clkOutSignal := 0;
-					changeClock := 0;
-					ready <= '0';
-					sending := 1;					
-				elsif rising_edge(clkData) then
-					if sending = 1 then
-						if changeClock = 1 then
-							changeClock := 0;
-							-- UPDATE CLOCK
-							if clkOutSignal = 1 then
-								clkOutSignal := 0;
-								clkOut <= '0';
-							else
-								clkOutSignal := 1;
-								clkOut <= '1';
-							end if;
-						else
-							changeClock := 1;
-							-- UPDATA DATA
-							case countBit is
-								when 0 => dataOut <= '0';
-								when 1 => dataOut <= data(0);
-								when 2 => dataOut <= data(1);
-								when 3 => dataOut <= data(2);
-								when 4 => dataOut <= data(3);
-								when 5 => dataOut <= data(4);
-								when 6 => dataOut <= data(5);
-								when 7 => dataOut <= data(6);
-								when 8 => dataOut <= data(7);
-								when 9 => dataOut <= parity;
-								when 10 => dataOut <= '1';
-								when others => null;
-							end case;
-							countBit := countBit + 1;
-							if countBit = 11 then
-								countBit := 0;
-								sending := 0;
-								ready <= '1';
-							end if;
-						end if;
+					if wrte = '1' then
+						state <= sending;	
+					else 
+						state <= receiving;
 					end if;
+				elsif sendReady2 = '1' then
+					state <= rust;
+				elsif receivedInterrupt = '1' then
+					state <= rust;
 				end if;
 		end process;
 		
-		test <= clkData;
+		process (state)
+		begin
+			case state is
+				when sending =>
+					clkOut <= SENDER_clock;
+					dataOut <= SENDER_data;
+					SENDER_enabled <= '1';
+					RECEIVER_enabled <= '0';
+				when receiving =>
+					clkOut <= SENDER_clock;
+					RECEIVER_data <= dataOut;
+					SENDER_enabled <= '0';
+					RECEIVER_enabled <= '1';
+				when rust =>
+					clkOut <= 'Z';
+					dataOut <= 'Z';
+					SENDER_enabled <= '0';
+					RECEIVER_enabled <= '0';
+			end case;
+		end process;
+		
+		test <= clkIn;
 end architecture;
