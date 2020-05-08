@@ -1,0 +1,13 @@
+*.vwf
+*.bak
+*.zip
+*.elf
+db/
+incremental_db/
+output_files/
+simulation/
+nios/synthesis/
+C/.vscode/
+.qsys_edit/
+*.rpt
+*.srec
