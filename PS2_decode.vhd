@@ -17,14 +17,11 @@ entity PS2_decode is
 		resolution		: OUT STD_LOGIC_VECTOR(1 downto 0);
 		scaling			: OUT STD_LOGIC;
 		dataReporting	: OUT STD_LOGIC;
-		move				: IN STD_LOGIC_VECTOR(1 downto 0);
-		testje			: OUT STD_LOGIC;
-		testje2			: OUT STD_LOGIC_VECTOR(1 downto 0)
+		move				: IN STD_LOGIC_VECTOR(1 downto 0)
 	);
 end entity;
 
 architecture default of PS2_decode is	
-	SIGNAL sendBuffer : STD_LOGIC_VECTOR(23 downto 0);
 	SIGNAL sendBuffer1 : STD_LOGIC_VECTOR(7 downto 0);
 	SIGNAL sendBuffer2 : STD_LOGIC_VECTOR(7 downto 0);
 	SIGNAL sendBuffer3 : STD_LOGIC_VECTOR(7 downto 0);
@@ -32,24 +29,17 @@ architecture default of PS2_decode is
 	SIGNAL nextItem : INTEGER RANGE 0 to 15;
 	
 	SIGNAL lastCommand : STD_LOGIC_VECTOR(7 downto 0);
-	
-	SIGNAL dataReportingSignal : STD_LOGIC; -- 0 niet geinitaliseert
 
 	begin	
-	
-		testje2 <= std_logic_vector(to_unsigned(remainingBufferItems, 2));
---		dataReporting <= dataReportingSignal;
 		process(reset, PS2_RESET, clk)
 			begin
 				if reset = '0' then
 					remainingBufferItems <= 0;
-					dataReportingSignal <= '0';
 					sendBuffer1 <= "00000000";
 					sendBuffer2 <= "00000000";
 					sendBuffer3 <= "00000000";
 				elsif PS2_RESET = '0' then
 					remainingBufferItems <= 0;	
-					dataReportingSignal <= '0';
 					sendBuffer1 <= "00000000";
 					sendBuffer2 <= "00000000";
 					sendBuffer3 <= "00000000";

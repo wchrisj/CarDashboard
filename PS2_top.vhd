@@ -1,34 +1,39 @@
-LIBRARY ieee ;
-USE ieee.std_logic_1164.all ;
+LIBRARY ieee;
+USE ieee.std_logic_1164.ALL;
 
-entity toplevel is
+entity PS2_top is
 	port(
-		CLOCK_50 : IN STD_LOGIC;
-		KEY : IN STD_LOGIC_VECTOR(3 downto 0);
-		GPIO : INOUT STD_LOGIC_VECTOR(35 downto 0);
-		LEDR : OUT STD_LOGIC_VECTOR(17 downto 0);
-		LEDG : OUT STD_LOGIC_VECTOR(7 downto 0)
+		GPIO					: INOUT STD_LOGIC_VECTOR(25 downto 23);
+		CLOCK_50				: IN STD_LOGIC;
+	   KEY	 				: IN STD_LOGIC_VECTOR(0 downto 0);
+		moveUp				: IN STD_LOGIC;
+		moveDown				: IN STD_LOGIC;
+		moveLeft				: IN STD_LOGIC;
+		moveRight			: IN STD_LOGIC;
+		movementReceived	: OUT STD_LOGIC;
+		sampleRate			: OUT STD_LOGIC_VECTOR(2 downto 0);
+		resolution			: OUT STD_LOGIC_VECTOR(1 downto 0);
+		scaling				: OUT STD_LOGIC;
+		dataReporting		: OUT STD_LOGIC;
+		LEDG					: OUT STD_LOGIC_VECTOR(7 downto 0);
+		LEDR					: OUT STD_LOGIC_VECTOR(17 downto 0)
 	);
-	
 end entity;
 
-architecture default of toplevel is
+architecture default of PS2_top is
 	component nios is
 		port (
-			clk_clk            : in  std_logic                     := '0';             --         clk.clk
-			leds_export        : out std_logic_vector(17 downto 0);                    --        leds.export
-			ps2_control_export : out std_logic_vector(1 downto 0);                     -- ps2_control.export
-			ps2_flags_export   : in  std_logic_vector(1 downto 0)  := (others => '0'); --   ps2_flags.export
-			ps2_receive_export : in  std_logic_vector(7 downto 0)  := (others => '0'); -- ps2_receive.export
-			ps2_send_export    : out std_logic_vector(7 downto 0);                     --    ps2_send.export
-			reset_reset_n      : in  std_logic                     := '0'              --       reset.reset_n
+			clk_clk        : in  std_logic                    := '0'; --     clk.clk
+			ps2_loc_export : out std_logic_vector(4 downto 0);        -- ps2_loc.export
+			reset_reset_n  : in  std_logic                    := '0'  --   reset.reset_n
 		);
 	end component nios;
-	
+
 	component PS2 IS
 		 PORT(
 			  PS2_CLK   			: INOUT STD_LOGIC;
 			  PS2_DATA   			: INOUT STD_LOGIC;
+			  PS2_RESET				: IN STD_LOGIC;
 			  clk 					: IN STD_LOGIC;
 			  reset					: IN STD_LOGIC;
 			  wrte					: IN STD_LOGIC; -- 0 = lezen, 1 = schrijven
@@ -42,6 +47,7 @@ architecture default of toplevel is
 	
 	component PS2_decode is
 		port(
+			PS2_RESET		: IN STD_LOGIC;
 			clk 				: IN STD_LOGIC;
 			reset 			: IN STD_LOGIC;
 			receivedData 	: IN STD_LOGIC_VECTOR(7 downto 0);
@@ -54,7 +60,7 @@ architecture default of toplevel is
 			resolution		: OUT STD_LOGIC_VECTOR(1 downto 0);
 			scaling			: OUT STD_LOGIC;
 			dataReporting	: OUT STD_LOGIC;
-			testje			: OUT STD_LOGIC_VECTOR(1 downto 0)
+			move				: IN STD_LOGIC_VECTOR(1 downto 0)
 		);
 	end component;
 	
@@ -63,33 +69,37 @@ architecture default of toplevel is
 				clkout : OUT STD_LOGIC);
 	end component Prescaler;
 	
+	component PS2_calculateMove is
+		port(
+			clk		: IN STD_LOGIC;
+			reset		: IN STD_LOGIC;
+			cLoc		: IN STD_LOGIC_VECTOR(4 downto 0);
+			nextMove	: OUT STD_LOGIC_VECTOR(1 downto 0) -- 00 blijf waar je bent, 01 ga naar rechts, 10 ga naar links, 11 bestaat niet
+		);
+	end component;
+	
 	SIGNAL wrteSignal : STD_LOGIC;
 	SIGNAL startSignal : STD_LOGIC;
 	SIGNAL sendData : STD_LOGIC_VECTOR(7 downto 0);
 	SIGNAL receiveData : STD_LOGIC_VECTOR(7 downto 0);
 	SIGNAL receivedInterruptSignal : STD_LOGIC;
 	SIGNAL sendReadySignal : STD_LOGIC;
+	SIGNAL PS2_prescaledClk : STD_LOGIC;
 	
-	signal PS2wires : STD_LOGIC_VECTOR(19 downto 0);
-	signal testWires : STD_LOGIC_VECTOR(8 downto 0);
-	signal PS2_prescaledClk : STD_LOGIC; -- Dit is de prescaled clock die gebruikt word door PS2
+	SIGNAL cLocSignal : STD_LOGIC_VECTOR(4 downto 0);
+	SIGNAL nextMoveSignal : STD_LOGIC_VECTOR(1 downto 0);
 	
-	SIGNAL dataReporting : STD_LOGIC;
-	SIGNAL scaling : STD_LOGIC;
-	SIGNAL sampleRate : STD_LOGIC_VECTOR(2 downto 0);
-	SIGNAL resolution : STD_LOGIC_VECTOR(1 downto 0);
-	
-	begin
-		niosPM: nios PORT MAP (CLOCK_50, LEDR, PS2wires(19 downto 18), PS2wires(17 downto 16), PS2wires(15 downto 8), PS2wires(7 downto 0), KEY(0));
-		ps2PrescalerPM : prescaler PORT MAP (
-			clk					=> CLOCK_50,
-			reset					=> KEY(0),
-			clkout				=> PS2_prescaledClk
+	begin	
+		niosPM : nios PORT MAP (
+			clk_clk       	 	=> CLOCK_50,
+			ps2_loc_export		=> cLocSignal,
+			reset_reset_n 		=> KEY(0)
 		);
-		
+	
 		PS2_sendreceivePM : PS2 PORT MAP (
 			PS2_CLK   			=> GPIO(25),
 			PS2_DATA   			=> GPIO(23),
+			PS2_RESET			=> GPIO(24),
 			clk 					=> PS2_prescaledClk,
 			reset	 				=> KEY(0),
 			wrte					=> wrteSignal, -- 0 = lezen, 1 = schrijven
@@ -102,6 +112,7 @@ architecture default of toplevel is
 		);
 		
 		PS2_decodePM : PS2_decode PORT MAP (
+			PS2_RESET			=> GPIO(24),
 			clk 					=> PS2_prescaledClk,
 			reset	 				=> KEY(0),
 			receivedData 		=> receiveData,
@@ -114,6 +125,20 @@ architecture default of toplevel is
 			resolution			=> resolution,
 			scaling				=> scaling,
 			dataReporting		=> dataReporting,
-			testje				=> LEDG(7 downto 6)
+			move					=> nextMoveSignal
 		);
+		
+		ps2PrescalerPM : prescaler PORT MAP (
+			clk					=> CLOCK_50,
+			reset					=> KEY(0),
+			clkout				=> PS2_prescaledClk
+		);
+		
+		ps2_calculateMovePM : PS2_calculateMove PORT MAP (
+			clk					=> PS2_prescaledClk,
+			reset					=> GPIO(24),
+			cLoc					=> cLocSignal,
+			nextMove				=> nextMoveSignal
+		);
+ 	
 end architecture;
