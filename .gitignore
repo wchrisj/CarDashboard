@@ -11,3 +11,4 @@ C/.vscode/
 .qsys_edit/
 *.rpt
 *.srec
+.metadata/
